@@ -1,0 +1,39 @@
+name: Build Debian WMaker ISO
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:   # permette di lanciare manualmente il workflow
+
+jobs:
+  iso-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            debootstrap xorriso squashfs-tools \
+            grub-efi-amd64-bin mtools dosfstools \
+            wget git make gcc g++ fakeroot devscripts lintian passwd \
+            xorg xserver-xorg-core xserver-xorg-video-all \
+            x11-xserver-utils x11-xkb-utils x11-utils \
+            xinit thunar distrobox nsxiv xarchiver \
+            wmaker wmtime zenity
+
+      - name: Make ISO build script executable
+        run: chmod +x ./mkiso.sh
+
+      - name: Run ISO build script
+        # No interactive password, script will leave makaba with empty password
+        run: ./mkiso.sh
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Debian-WMaker-ISO
+          path: output/*.iso
