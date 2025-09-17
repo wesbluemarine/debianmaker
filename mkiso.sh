@@ -1,157 +1,130 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
 set -euo pipefail
+set -x  # debug output
 
-# ============================================================
-#  Build script for Debian Live ISO with WindowMaker
-#  UEFI only, Zstandard-compressed filesystem
-# ============================================================
+LB_DIR="live-build-workdir"
+DIST="trixie"
+ARCH="amd64"
+IMAGE_LABEL="debian-trixie-xfce"
 
-TOPDIR="$(pwd)"
-GEN_DIR="$TOPDIR/generated.x86"
-OUTDIR="$TOPDIR/output"
+# Main packages
+PKGS="xfce4
+xfce4-appmenu-plugin
+distrobox
+flatpak
+suckless-tools
+wmctrl
+xdotool
+live-boot
+live-config
+live-boot-initramfs-tools"
 
-DATE=$(date +%Y%m%d)
-ISONAME="Debian-WMaker-UEFI-${DATE}.iso"
-
-# ============================================================
-# 1. Install build dependencies
-# ============================================================
-echo "[*] Installing build dependencies..."
-sudo apt update
-sudo apt install -y --no-install-recommends \
-  debootstrap xorriso squashfs-tools \
-  grub-efi-amd64-bin mtools dosfstools \
-  wget git make gcc g++ fakeroot devscripts lintian \
-  passwd xorg xserver-xorg-core xserver-xorg-video-all \
-  x11-xserver-utils x11-xkb-utils x11-utils \
-  xinit thunar distrobox nsxiv xarchiver \
-  wmaker wmtime zenity
-
-# ============================================================
-# 2. Prepare build directories
-# ============================================================
-mkdir -p "$GEN_DIR" "$OUTDIR"
-
-# ============================================================
-# 3. Bootstrap minimal Debian
-# ============================================================
-echo "[*] Creating minimal rootfs..."
-sudo debootstrap --arch=amd64 trixie "$GEN_DIR/chroot" http://deb.debian.org/debian/
-
-# ============================================================
-# 4. Install packages and create user inside chroot
-# ============================================================
-echo "[*] Installing extra packages inside chroot..."
-
-sudo chroot "$GEN_DIR/chroot" bash -c "
-set -e
-DEBIAN_FRONTEND=noninteractive apt update
-DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends \
-  systemd-sysv linux-image-amd64 live-boot sudo \
-  thunar distrobox nsxiv xarchiver xorg xserver-xorg-core \
-  xserver-xorg-video-all x11-xserver-utils x11-xkb-utils x11-utils \
-  xinit xserver-xorg-input-libinput wmaker wmtime zenity
-
-# Create user 'makaba' without password (password will be set at first GUI login)
-useradd -m -s /bin/bash makaba
-passwd -d makaba
-adduser makaba sudo
-
-# Create Applications folder
-mkdir -p /home/makaba/Applications
-chown -R makaba:makaba /home/makaba/Applications
-
-# Create GUI password setup script in ~/.local/bin
-mkdir -p /home/makaba/.local/bin
-cat > /home/makaba/.local/bin/set-pass.sh <<'EOF'
-#!/bin/bash
-# Only run GUI password setup if a password is not yet set
-if sudo getent shadow makaba | grep -qE '^[^:]+::|^[^:]+:!'; then
-    # Ask for a new password using zenity dialog
-    PASS=\$(zenity --password --title=\"Set password\" \
-           --text=\"Create a password for user 'makaba'\")
-    if [ -n \"\$PASS\" ]; then
-        echo \"makaba:\$PASS\" | sudo chpasswd
-        zenity --info --title=\"Password set\" \
-               --text=\"Password for 'makaba' has been configured.\"
-        # Optional: disable this script after the first run
-        rm -f /home/makaba/.local/bin/set-pass.sh
-    fi
+echo "1) Checking host dependencies"
+if ! command -v lb >/dev/null 2>&1; then
+  echo "live-build (lb) not found: install it first (apt install live-build)."
+  exit 1
 fi
+
+echo "2) Cleaning previous build and caches"
+lb clean --purge || true
+rm -rf "$LB_DIR"
+rm -rf config/archives/*
+rm -rf config/includes.chroot/etc/apt/sources.list.d/*
+rm -rf config/includes.chroot/var/lib/apt/lists/*
+mkdir -p "$LB_DIR"
+cd "$LB_DIR"
+
+echo "3) Configuring live-build for Debian Trixie"
+lb config \
+  --compress "xz" \
+  --distribution "$DIST" \
+  --architecture "$ARCH" \
+  --archive-areas "main contrib non-free non-free-firmware" \
+  --binary-images iso-hybrid \
+  --bootappend-live "persistence toram" \
+  --debian-installer live \
+  --iso-volume "$IMAGE_LABEL" \
+  --iso-publisher "Custom Debian Live" \
+  --mirror-bootstrap http://deb.debian.org/debian/ \
+  --mirror-binary http://deb.debian.org/debian/ \
+  --apt-indices false \
+  --apt-source false
+
+echo "4) Create correct sources.list in chroot"
+mkdir -p config/includes.chroot/etc/apt
+cat > config/includes.chroot/etc/apt/sources.list <<'EOF'
+deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
 EOF
 
-chmod +x /home/makaba/.local/bin/set-pass.sh
-chown -R makaba:makaba /home/makaba/.local/bin
+rm -f config/includes.chroot/etc/apt/sources.list.d/* || true
 
-# Configure WindowMaker autostart to run the script
-mkdir -p /home/makaba/GNUstep/Library/WindowMaker
-cat > /home/makaba/GNUstep/Library/WindowMaker/autostart <<'EOF'
-#!/bin/bash
-[ -x /home/makaba/.local/bin/set-pass.sh ] && /home/makaba/.local/bin/set-pass.sh &
-EOF
+echo "5) Add live-pre hook to clean residual .list files"
+mkdir -p config/hooks/live-pre
+cat > config/hooks/live-pre/000-clean-apt-files.chroot <<'HOOK'
+#!/bin/sh
+rm -f /etc/apt/sources.list.d/*
+HOOK
+chmod +x config/hooks/live-pre/000-clean-apt-files.chroot
 
-chmod +x /home/makaba/GNUstep/Library/WindowMaker/autostart
-chown -R makaba:makaba /home/makaba/GNUstep
+echo "6) Create package list"
+mkdir -p config/package-lists
+printf "%s\n" "$PKGS" > config/package-lists/desktop.list
 
-apt clean
-"
+echo "7) Include Debian wallpapers"
+mkdir -p config/includes.chroot/usr/share/backgrounds/debian-custom
+if [ -d ../wallpapers ]; then
+  cp -a ../wallpapers/* config/includes.chroot/usr/share/backgrounds/debian-custom/ || true
+fi
 
-# ============================================================
-# 5. Prepare ISO filesystem with Zstandard compression
-# ============================================================
-echo "[*] Preparing ISO filesystem (Zstandard compression)..."
-mkdir -p "$GEN_DIR/iso/live"
-sudo mksquashfs "$GEN_DIR/chroot" "$GEN_DIR/iso/live/filesystem.squashfs" -e boot -comp zstd
+echo "8) Hook: enable Flatpak and Distrobox"
+mkdir -p config/hooks/live-bottom
+cat > config/hooks/live-bottom/020-enable-flatpak.chroot <<'HOOK'
+#!/bin/sh
+set -e
+if command -v flatpak >/dev/null 2>&1; then
+  flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
+fi
+HOOK
+chmod +x config/hooks/live-bottom/020-enable-flatpak.chroot
 
-# Copy kernel and initrd
-sudo cp "$GEN_DIR/chroot/boot/vmlinuz"* "$GEN_DIR/iso/live/vmlinuz"
-sudo cp "$GEN_DIR/chroot/boot/initrd.img"* "$GEN_DIR/iso/live/initrd"
-
-# -------------------------
-# UEFI boot (GRUB EFI)
-# -------------------------
-mkdir -p "$GEN_DIR/iso/EFI/BOOT" "$GEN_DIR/iso/boot/grub"
-
-cat > "$GEN_DIR/iso/boot/grub/grub.cfg" <<EOF
+echo "9) GRUB configuration for persistent live system"
+mkdir -p config/includes.binary/boot/grub
+cat > config/includes.binary/boot/grub/grub.cfg <<'GRUB'
 set default=0
-set timeout=5
-
-search --no-floppy --set=root --volid WMakerLive
-
-menuentry "Live persistent system (amd64)" {
-    linux /live/vmlinuz boot=live persistence quiet splash
-    initrd /live/initrd
+set timeout=10
+menuentry "Live persistent system" {
+    linux /live/vmlinuz boot=live persistence toram quiet splash ---
+    initrd /live/initrd.img
 }
-
-menuentry "Live system (amd64)" {
-    linux /live/vmlinuz boot=live quiet splash
-    initrd /live/initrd
+menuentry "Live system" {
+    linux /live/vmlinuz boot=live quiet splash ---
+    initrd /live/initrd.img
 }
-EOF
+GRUB
 
-grub-mkstandalone \
-  --format=x86_64-efi \
-  --output="$GEN_DIR/iso/EFI/BOOT/BOOTX64.EFI" \
-  --locales="" \
-  --themes="" \
-  "boot/grub/grub.cfg=$GEN_DIR/iso/boot/grub/grub.cfg"
+echo "10) isolinux BIOS boot configuration"
+mkdir -p config/includes.binary/isolinux
+cat > config/includes.binary/isolinux/txt.cfg <<'ISOL'
+default vesamenu.c32
+timeout 100
+label live
+  menu label ^Live persistent system
+  kernel /live/vmlinuz
+  append boot=live persistence toram quiet splash ---
+ISOL
 
-# Create EFI System Partition image inside ISO folder
-dd if=/dev/zero of="$GEN_DIR/iso/EFI.img" bs=1M count=20
-sudo mkfs.vfat "$GEN_DIR/iso/EFI.img"
-mmd -i "$GEN_DIR/iso/EFI.img" ::/EFI ::/EFI/BOOT
-mcopy -i "$GEN_DIR/iso/EFI.img" "$GEN_DIR/iso/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT
+echo "11) Add distrobox info to /etc/skel"
+mkdir -p config/includes.chroot/etc/skel/.config/distrobox
+echo "Distrobox is installed. Use 'distrobox-create' and 'distrobox-enter'." > config/includes.chroot/etc/skel/.config/distrobox/README
 
-# ============================================================
-# 6. Build UEFI-only ISO
-# ============================================================
-echo "[*] Creating UEFI-only ISO..."
-xorriso -as mkisofs \
-  -o "$OUTDIR/$ISONAME" \
-  -V "WMakerLive" \
-  -eltorito-alt-boot \
-  -e EFI.img \
-  -no-emul-boot -isohybrid-gpt-basdat \
-  "$GEN_DIR/iso"
+echo "12) Optional preconfigured XFCE settings"
+mkdir -p config/includes.chroot/etc/xdg/xfce4
 
-echo "[+] UEFI-only ISO created: $OUTDIR/$ISONAME"
+echo "13) Start build (lb build). This may take time."
+lb build
+
+echo "Build completed. ISO should be in the current directory (live-image-amd64.hybrid.iso or similar)."
+echo "Done."

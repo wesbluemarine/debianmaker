@@ -1,39 +1,39 @@
-name: Build Debian WMaker ISO
+name: Build Debian Persistent XFCE ISO
 
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:   # permette di lanciare manualmente il workflow
+  workflow_dispatch:
 
 jobs:
   iso-build:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      # Step 2: Build ISO inside privileged Docker container
+      - name: Build ISO in privileged Docker
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            debootstrap xorriso squashfs-tools \
-            grub-efi-amd64-bin mtools dosfstools \
-            wget git make gcc g++ fakeroot devscripts lintian passwd \
-            xorg xserver-xorg-core xserver-xorg-video-all \
-            x11-xserver-utils x11-xkb-utils x11-utils \
-            xinit thunar distrobox nsxiv xarchiver \
-            wmaker wmtime zenity
+          docker run --rm --privileged \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            debian:trixie /bin/bash -c "
+              set -e
+              apt-get update &&
+              apt-get install -y --no-install-recommends \
+                live-build xorriso squashfs-tools p7zip-full \
+                grub-efi-amd64-bin mtools dosfstools rsync \
+                apt-utils gnupg2 ca-certificates git &&
+              chmod +x mkiso.sh &&
+              ./mkiso.sh
+            "
 
-      - name: Make ISO build script executable
-        run: chmod +x ./mkiso.sh
-
-      - name: Run ISO build script
-        # No interactive password, script will leave makaba with empty password
-        run: ./mkiso.sh
-
+      # Step 3: Upload ISO artifact
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Debian-WMaker-ISO
-          path: output/*.iso
+          name: debian-trixie-xfce-persistent
+          path: live-build-workdir/*.iso
