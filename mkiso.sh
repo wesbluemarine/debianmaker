@@ -12,7 +12,6 @@ IMAGE_LABEL="debian-trixie-xfce"
 PKGS="xfce4
 xfce4-panel
 xfce4-appmenu-plugin
-xfce4-statusnotifier-plugin
 flatpak
 suckless-tools
 fd-find
