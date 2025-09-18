@@ -10,10 +10,12 @@ IMAGE_LABEL="debian-trixie-xfce"
 
 # Main packages
 PKGS="xfce4
+xfce4-panel
 xfce4-appmenu-plugin
-distrobox
+xfce4-statusnotifier-plugin
 flatpak
 suckless-tools
+fd-find
 wmctrl
 xdotool
 live-boot
@@ -73,13 +75,13 @@ echo "6) Create package list"
 mkdir -p config/package-lists
 printf "%s\n" "$PKGS" > config/package-lists/desktop.list
 
-echo "7) Include Debian wallpapers"
+echo "7) Include Debian wallpapers (optional)"
 mkdir -p config/includes.chroot/usr/share/backgrounds/debian-custom
 if [ -d ../wallpapers ]; then
   cp -a ../wallpapers/* config/includes.chroot/usr/share/backgrounds/debian-custom/ || true
 fi
 
-echo "8) Hook: enable Flatpak and Distrobox"
+echo "8) Hook: enable Flatpak remote Flathub"
 mkdir -p config/hooks/live-bottom
 cat > config/hooks/live-bottom/020-enable-flatpak.chroot <<'HOOK'
 #!/bin/sh
@@ -116,12 +118,71 @@ label live
   append boot=live persistence toram quiet splash ---
 ISOL
 
-echo "11) Add distrobox info to /etc/skel"
-mkdir -p config/includes.chroot/etc/skel/.config/distrobox
-echo "Distrobox is installed. Use 'distrobox-create' and 'distrobox-enter'." > config/includes.chroot/etc/skel/.config/distrobox/README
+echo "11) Hook: append environment variables"
+cat > config/hooks/live-pre/010-append-env.chroot <<'HOOK'
+#!/bin/sh
+set -e
+echo 'UBUNTU_MENUPROXY=1' >> /etc/environment
+echo 'GTK_MODULES=appmenu-gtk-module' >> /etc/environment
+# Ensure .local/bin is in PATH for all users
+echo 'PATH="$HOME/.local/bin:$PATH"' >> /etc/environment
+HOOK
+chmod +x config/hooks/live-pre/010-append-env.chroot
 
-echo "12) Optional preconfigured XFCE settings"
-mkdir -p config/includes.chroot/etc/xdg/xfce4
+echo "12) XFCE panel default configuration"
+mkdir -p config/includes.chroot/etc/xdg/xfce4/panel
+cat > config/includes.chroot/etc/xdg/xfce4/panel/default.xml <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+
+<channel name="xfce4-panel" version="1.0">
+  <property name="panels" type="array">
+    <value type="int" value="1"/>
+    <property name="panel-1" type="empty">
+      <property name="position" type="string" value="p=8;x=0;y=0"/>
+      <property name="length" type="uint" value="100"/>
+      <property name="size" type="uint" value="28"/>
+      <property name="plugin-ids" type="array">
+        <value type="int" value="1"/> <!-- Application Menu -->
+        <value type="int" value="2"/> <!-- Appmenu Plugin -->
+        <value type="int" value="3"/> <!-- Transparent Separator -->
+        <value type="int" value="4"/> <!-- Status Tray -->
+        <value type="int" value="5"/> <!-- Transparent Separator -->
+        <value type="int" value="6"/> <!-- Clock -->
+        <value type="int" value="7"/> <!-- Window Menu -->
+      </property>
+    </property>
+  </property>
+
+  <property name="plugins" type="map">
+    <property name="plugin-1" type="string" value="applicationsmenu">
+      <property name="button-label" type="string" value="Applications"/>
+      <property name="show-button-title" type="bool" value="true"/>
+      <property name="show-button-icon" type="bool" value="false"/>
+    </property>
+
+    <property name="plugin-2" type="string" value="appmenu"/>
+
+    <property name="plugin-3" type="string" value="separator">
+      <property name="expand" type="bool" value="true"/>
+      <property name="style" type="uint" value="0"/>
+    </property>
+
+    <property name="plugin-4" type="string" value="statusnotifier"/>
+
+    <property name="plugin-5" type="string" value="separator">
+      <property name="expand" type="bool" value="false"/>
+      <property name="style" type="uint" value="0"/>
+    </property>
+
+    <property name="plugin-6" type="string" value="clock">
+      <property name="digital-time-format" type="string" value="%A, %e %B %Y %I:%M %p"/>
+      <property name="mode" type="uint" value="2"/>
+    </property>
+
+    <property name="plugin-7" type="string" value="windowmenu"/>
+  </property>
+</channel>
+XML
 
 echo "13) Start build (lb build). This may take time."
 lb build
