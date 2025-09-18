@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-set -x  # debug output
+set -x
 
 LB_DIR="live-build-workdir"
 DIST="trixie"
 ARCH="amd64"
 IMAGE_LABEL="debian-trixie-xfce"
 
-# Pacchetti principali (senza xfce4-goodies, niente st/xterm)
+# Pacchetti principali
 PKGS="xfce4
 xfce4-appmenu-plugin
+lightdm
 flatpak
 suckless-tools
 fd-find
@@ -20,24 +21,20 @@ live-boot
 live-config
 live-boot-initramfs-tools"
 
-echo "1) Checking host dependencies"
+echo "1) Check dependencies"
 if ! command -v lb >/dev/null 2>&1; then
-  echo "live-build (lb) not found: install it first (apt install live-build)."
+  echo "Please install live-build (apt install live-build)."
   exit 1
 fi
 
-echo "2) Cleaning previous build and caches"
+echo "2) Clean previous build"
 lb clean --purge || true
 rm -rf "$LB_DIR"
-rm -rf config/archives/*
-rm -rf config/includes.chroot/etc/apt/sources.list.d/*
-rm -rf config/includes.chroot/var/lib/apt/lists/*
 mkdir -p "$LB_DIR"
 cd "$LB_DIR"
 
-echo "3) Configuring live-build for Debian Trixie"
+echo "3) Configure live-build"
 lb config \
-  --compress "xz" \
   --distribution "$DIST" \
   --architecture "$ARCH" \
   --archive-areas "main contrib non-free non-free-firmware" \
@@ -48,10 +45,11 @@ lb config \
   --iso-publisher "Custom Debian Live" \
   --mirror-bootstrap http://deb.debian.org/debian/ \
   --mirror-binary http://deb.debian.org/debian/ \
+  --debootstrap-options "--exclude=xterm" \
   --apt-indices false \
   --apt-source false
 
-echo "4) Create correct sources.list in chroot"
+echo "4) sources.list"
 mkdir -p config/includes.chroot/etc/apt
 cat > config/includes.chroot/etc/apt/sources.list <<'EOF'
 deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
@@ -59,74 +57,13 @@ deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-f
 deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
 EOF
 
-rm -f config/includes.chroot/etc/apt/sources.list.d/* || true
-
-echo "5) Add live-pre hook to clean residual .list files"
-mkdir -p config/hooks/live-pre
-cat > config/hooks/live-pre/000-clean-apt-files.chroot <<'HOOK'
-#!/bin/sh
-rm -f /etc/apt/sources.list.d/*
-HOOK
-chmod +x config/hooks/live-pre/000-clean-apt-files.chroot
-
-echo "6) Create package list"
+echo "5) Package list"
 mkdir -p config/package-lists
-printf "%s\n" "$PKGS" > config/package-lists/desktop.list
+printf "%s\n" $PKGS > config/package-lists/desktop.list
 
-echo "7) Wallpapers (optional, copy if exists)"
-mkdir -p config/includes.chroot/usr/share/backgrounds/debian-custom
-if [ -d ../wallpapers ]; then
-  cp -a ../wallpapers/* config/includes.chroot/usr/share/backgrounds/debian-custom/ || true
-fi
-
-echo "8) Hook: enable Flatpak"
-mkdir -p config/hooks/live-bottom
-cat > config/hooks/live-bottom/020-enable-flatpak.chroot <<'HOOK'
-#!/bin/sh
-set -e
-if command -v flatpak >/dev/null 2>&1; then
-  flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
-fi
-HOOK
-chmod +x config/hooks/live-bottom/020-enable-flatpak.chroot
-
-echo "9) GRUB configuration"
-mkdir -p config/includes.binary/boot/grub
-cat > config/includes.binary/boot/grub/grub.cfg <<'GRUB'
-set default=0
-set timeout=10
-menuentry "Live persistent system" {
-    linux /live/vmlinuz boot=live persistence toram quiet splash ---
-    initrd /live/initrd.img
-}
-menuentry "Live system" {
-    linux /live/vmlinuz boot=live quiet splash ---
-    initrd /live/initrd.img
-}
-GRUB
-
-echo "10) isolinux BIOS boot configuration"
-mkdir -p config/includes.binary/isolinux
-cat > config/includes.binary/isolinux/txt.cfg <<'ISOL'
-default vesamenu.c32
-timeout 100
-label live
-  menu label ^Live persistent system
-  kernel /live/vmlinuz
-  append boot=live persistence toram quiet splash ---
-ISOL
-
-echo "11) Environment variables"
-mkdir -p config/includes.chroot/etc
-cat >> config/includes.chroot/etc/environment <<'EOF'
-UBUNTU_MENUPROXY=1
-GTK_MODULES=appmenu-gtk-module
-PATH="$HOME/.local/bin:$PATH"
-EOF
-
-echo "12) XFCE panel layout (1 panel on top)"
-mkdir -p config/includes.chroot/etc/xdg/xfce4/xfconf/xfce-perchannel-xml
-cat > config/includes.chroot/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml <<'PANEL'
+echo "6) Force XFCE config into /etc/skel"
+mkdir -p config/includes.chroot/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
+cat > config/includes.chroot/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml <<'PANEL'
 <?xml version="1.0" encoding="UTF-8"?>
 
 <channel name="xfce4-panel" version="1.0">
@@ -148,30 +85,46 @@ cat > config/includes.chroot/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-pane
     </property>
   </property>
   <property name="plugins" type="empty">
-    <property name="plugin-1" type="string" value="applicationsmenu">
-      <property name="show-button-title" type="bool" value="true"/>
-      <property name="button-title" type="string" value="Applications"/>
-      <property name="button-icon" type="string" value=""/>
-    </property>
+    <property name="plugin-1" type="string" value="applicationsmenu"/>
     <property name="plugin-2" type="string" value="appmenu"/>
     <property name="plugin-3" type="string" value="separator">
-      <property name="style" type="uint" value="0"/>
       <property name="expand" type="bool" value="true"/>
     </property>
     <property name="plugin-4" type="string" value="systray"/>
-    <property name="plugin-5" type="string" value="separator">
-      <property name="style" type="uint" value="0"/>
-    </property>
-    <property name="plugin-6" type="string" value="clock">
-      <property name="digital-format" type="string" value="%A, %d %B %Y %I:%M %p"/>
-    </property>
-    <property name="plugin-7" type="string" value="windowmenu"/>
+    <property name="plugin-5" type="string" value="separator"/>
+    <property name="plugin-6" type="string" value="clock"/>
   </property>
 </channel>
 PANEL
 
-echo "13) Start build (lb build). This may take time."
-lb build
+echo "7) LightDM autologin config"
+mkdir -p config/includes.chroot/etc/lightdm/lightdm.conf.d
+cat > config/includes.chroot/etc/lightdm/lightdm.conf.d/01-autologin.conf <<'EOF'
+[Seat:*]
+autologin-user=user
+autologin-user-timeout=0
+EOF
 
-echo "Build completed. ISO should be in the current directory (live-image-amd64.hybrid.iso or similar)."
-echo "Done."
+echo "8) Hook: ensure user/password"
+mkdir -p config/hooks/live-bottom
+cat > config/hooks/live-bottom/010-create-user.chroot <<'HOOK'
+#!/bin/sh
+set -e
+if ! id -u user >/dev/null 2>&1; then
+    useradd -m -s /bin/bash user
+    echo "user:live" | chpasswd
+    adduser user sudo || true
+fi
+HOOK
+chmod +x config/hooks/live-bottom/010-create-user.chroot
+
+echo "9) Environment vars"
+mkdir -p config/includes.chroot/etc
+cat >> config/includes.chroot/etc/environment <<'EOF'
+UBUNTU_MENUPROXY=1
+GTK_MODULES=appmenu-gtk-module
+PATH="$HOME/.local/bin:$PATH"
+EOF
+
+echo "10) Build ISO"
+lb build
