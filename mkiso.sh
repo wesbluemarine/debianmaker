@@ -18,7 +18,9 @@ lightdm-gtk-greeter
 xfce4-terminal
 xfce4-appmenu-plugin
 xfce4-indicator-plugin
-flatpak"
+distrobox
+flatpak
+suckless-tools"
 
 # 1) check lb available
 if ! command -v lb >/dev/null 2>&1; then
