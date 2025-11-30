@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # mkiso-trixie-system-xfce.sh
 # Build Debian Trixie live ISO with XFCE, Flatpak and system-wide XFCE panel config.
-# Comments are in English.
 
 set -euo pipefail
 set -x
@@ -11,7 +10,7 @@ DIST="trixie"
 ARCH="amd64"
 IMAGE_LABEL="debian-trixie-xfce"
 
-# Packages: no distrobox, no xterm; xfce4 core + terminal + appmenu + indicator + flatpak
+# Packages
 PKGS="task-xfce-desktop
 lightdm
 lightdm-gtk-greeter
@@ -68,19 +67,14 @@ EOF
 
 # 5) Provide a fallback copy into /etc/skel only if you want new users to have it by default
 #    (we avoid copying to existing home; /etc/skel is used when a user is created)
-#
-# NOTE: This point previously relied on content created in the removed point 5.
-# If you need /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml to exist,
-# you must re-create the file in config/includes.chroot/etc/skel manually here or via a hook.
-# As per request, I am keeping the original copy command but it will likely fail if the source
-# file (config/includes.chroot/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml)
-# is not created elsewhere. I'll comment out the cp command for safety.
 mkdir -p config/includes.chroot/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
+# La riga seguente è commentata perché il file sorgente non viene creato altrove nello script
 # cp config/includes.chroot/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml \
 #    config/includes.chroot/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
 
 
 # 6) Fix apt sources at final image stage so apt works in the live system
+mkdir -p config/hooks/live-bottom # <--- FIX per l'errore "No such file or directory"
 cat > config/hooks/live-bottom/030-fix-sources.chroot <<'HOOK'
 #!/bin/sh
 set -e
@@ -150,34 +144,4 @@ menuentry "Live persistent system" {
     linux /live/vmlinuz boot=live persistence quiet splash ---
     initrd /live/initrd.img
 }
-menuentry "Live persistent system (toram)" {
-    linux /live/vmlinuz boot=live persistence toram quiet splash ---
-    initrd /live/initrd.img
-}
-GRUB
-
-mkdir -p config/includes.binary/isolinux
-cat > config/includes.binary/isolinux/txt.cfg <<'ISOL'
-default vesamenu.c32
-timeout 100
-label live
-  menu label ^Live persistent system
-  kernel /live/vmlinuz
-  append boot=live persistence quiet splash ---
-label toram
-  menu label Live (persistent, copy to RAM)
-  kernel /live/vmlinuz
-  append boot=live persistence toram quiet splash ---
-ISOL
-
-# 12) Optional: include wallpapers if present in repo ../wallpapers
-mkdir -p config/includes.chroot/usr/share/backgrounds/debian-custom
-if [ -d ../wallpapers ]; then
-  cp -a ../wallpapers/* config/includes.chroot/usr/share/backgrounds/debian-custom/ || true
-fi
-
-# 13) Start the build
-echo "Starting lb build (this takes time)..."
-lb build
-
-echo "Build finished. The ISO should be in the current directory (live-image-*.iso)."
+menuentry "Live
