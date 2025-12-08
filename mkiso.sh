@@ -24,9 +24,8 @@ make
 libx11-dev
 libxft-dev
 libxinerama-dev
-neovim
 distrobox
-flatpak
+pipewire-audio
 xinit
 xserver-xorg
 firmware-linux
