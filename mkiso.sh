@@ -9,7 +9,7 @@ set -x
 LB_DIR="live-build-workdir"
 DIST="trixie"
 ARCH="amd64"
-IMAGE_LABEL="debian-trixie-dwm-tools"
+IMAGE_LABEL="debian-trixie-tools"
 
 # Packages:
 # - build-essential: Necessary for compiling C/C++ programs like dwm.
@@ -26,6 +26,7 @@ libxft-dev
 libxinerama-dev
 distrobox
 pipewire-audio
+suckless-tools
 xinit
 xserver-xorg
 firmware-linux
