@@ -1,4 +1,4 @@
-name: Build Debian Persistent XFCE ISO
+name: Build Debian Persistent ISO
 
 on:
   push:
@@ -35,5 +35,5 @@ jobs:
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debian-trixie-xfce-persistent
+          name: debian-trixie-persistent
           path: live-build-workdir/*.iso
