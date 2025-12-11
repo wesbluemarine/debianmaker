@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# mkiso-trixie-system-dwm-minimal.sh
-# Build Debian Trixie live ISO with minimal environment, build tools, Neovim, Distrobox, and Flatpak.
-# Comments are in English.
+# Build Debian live ISO with minimal environment.
 
 set -euo pipefail
 set -x
@@ -12,21 +10,10 @@ ARCH="amd64"
 IMAGE_LABEL="debian-trixie-tools"
 
 # Packages:
-# - build-essential: Necessary for compiling C/C++ programs like dwm.
-# - libx11-dev, libxft-dev, libxinerama-dev: dwm dependencies.
-# - neovim: The text editor.
-# - distrobox, flatpak: The container and application management tools.
-# - xinit, xserver-xorg: Minimal X environment to run dwm.
-# - firmware-linux, firmware-misc-nonfree: Essential non-free firmware for broad hardware support.
-PKGS="build-essential
-git
-make
-libx11-dev
-libxft-dev
-libxinerama-dev
+PKGS="
+cwm
 distrobox
 pipewire-audio
-suckless-tools
 xinit
 xserver-xorg
 firmware-linux
@@ -61,7 +48,6 @@ lb config \
   --iso-publisher "Custom Debian Live" \
   --mirror-bootstrap http://deb.debian.org/debian/ \
   --mirror-binary http://deb.debian.org/debian/ \
-  --debootstrap-options="--exclude=xterm" \
   --apt-indices false \
   --apt-source false
 
