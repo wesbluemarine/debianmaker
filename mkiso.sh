@@ -10,10 +10,16 @@ ARCH="amd64"
 IMAGE_LABEL="debian-trixie-tools"
 
 # Packages:
-PKGS="
-cwm
+PKGS="build-essential
+git
+make
+libx11-dev
+libxft-dev
+libxinerama-dev
 distrobox
 pipewire-audio
+suckless-tools
+dubs-x11
 xinit
 xserver-xorg
 firmware-linux
