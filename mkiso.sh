@@ -19,7 +19,7 @@ libxinerama-dev
 distrobox
 pipewire-audio
 suckless-tools
-dubs-x11
+dbus-x11
 xinit
 xserver-xorg
 firmware-linux
