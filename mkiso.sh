@@ -20,6 +20,7 @@ distrobox
 pipewire-audio
 suckless-tools
 dbus-x11
+xfonts-terminus
 xinit
 xserver-xorg
 firmware-linux
