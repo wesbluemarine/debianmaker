@@ -18,7 +18,6 @@ libxft-dev
 libxinerama-dev
 distrobox
 pipewire-audio
-suckless-tools
 dbus-x11
 xfonts-terminus
 xinit
@@ -62,17 +61,7 @@ lb config \
 mkdir -p config/package-lists
 printf "%s\n" "$PKGS" > config/package-lists/custom.list.chroot
 
-# 5) Ensure a minimal .xinitrc is present to start dwm automatically
-#    (It will be copied to /etc/skel/.xinitrc and used by the live user)
-mkdir -p config/includes.chroot/etc/skel
-cat > config/includes.chroot/etc/skel/.xinitrc <<'XINIT'
-#!/bin/sh
-# Start dwm by default
-exec dwm
-XINIT
-chmod +x config/includes.chroot/etc/skel/.xinitrc
-
-# 6) Provide a fallback user 'user' and start X (re-uses part of the original logic)
+# 5) Provide a fallback user 'user' and start X (re-uses part of the original logic)
 mkdir -p config/hooks/live-bottom
 cat > config/hooks/live-bottom/040-create-user-and-autostart-x.chroot <<'HOOK'
 #!/bin/sh
@@ -92,14 +81,14 @@ fi
 # This assumes the live boot drops to a console login prompt for the 'user'.
 cat > /etc/profile.d/autostartx.sh <<'STARTX'
 if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && [ "$USER" = "user" ] && [ -f "$HOME/.xinitrc" ]; then
-    exec startx
+    startx
 fi
 STARTX
 chmod +x /etc/profile.d/autostartx.sh
 HOOK
 chmod +x config/hooks/live-bottom/040-create-user-and-autostart-x.chroot
 
-# 7) Fix apt sources at final image stage so apt works in the live system (re-used)
+# 6) Fix apt sources at final image stage so apt works in the live system (re-used)
 cat > config/hooks/live-bottom/030-fix-sources.chroot <<'HOOK'
 #!/bin/sh
 set -e
@@ -113,7 +102,7 @@ apt-get update || true
 HOOK
 chmod +x config/hooks/live-bottom/030-fix-sources.chroot
 
-# 8) Minimal cleaning hooks (re-used)
+# 7) Minimal cleaning hooks (re-used)
 mkdir -p config/hooks/chroot
 cat > config/hooks/chroot/001-clean-docs.chroot <<'HOOK'
 #!/bin/sh
@@ -123,7 +112,7 @@ find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name "en*" ! -name "it*" -exec
 HOOK
 chmod +x config/hooks/chroot/001-clean-docs.chroot
 
-# 9) GRUB + isolinux entries: persistence default, toram optional (re-used)
+# 7) GRUB + isolinux entries: persistence default, toram optional (re-used)
 mkdir -p config/includes.binary/boot/grub
 cat > config/includes.binary/boot/grub/grub.cfg <<'GRUB'
 set default=0
@@ -142,14 +131,14 @@ mkdir -p config/includes.binary/isolinux
 cat > config/includes.binary/isolinux/txt.cfg <<'ISOL'
 default vesamenu.c32
 timeout 100
-label live
-  menu label ^Live persistent system
-  kernel /live/vmlinuz
-  append boot=live persistence quiet splash ---
 label toram
   menu label Live (persistent, copy to RAM)
   kernel /live/vmlinuz
   append boot=live persistence toram quiet splash ---
+label live
+  menu label ^Live persistent system
+  kernel /live/vmlinuz
+  append boot=live persistence quiet splash ---
 ISOL
 
 # 10) Start the build
