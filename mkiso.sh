@@ -8,22 +8,25 @@ LB_DIR="live-build-workdir"
 DIST="trixie"
 ARCH="amd64"
 IMAGE_LABEL="debian-trixie-tools"
+# Generate timestamp: YearMonthDayHourMinute
+TIMESTAMP=$(date +"%Y%m%d%H%M")
 
 # Packages:
 PKGS="build-essential
+dbus-x11
+distrobox
+firmware-linux
+firmware-misc-nonfree
 git
-make
 libx11-dev
 libxft-dev
 libxinerama-dev
-distrobox
+make
 pipewire-audio
-dbus-x11
+suckless-tools
 xfonts-terminus
 xinit
-xserver-xorg
-firmware-linux
-firmware-misc-nonfree"
+xserver-xorg"
 
 # 1) check lb available
 if ! command -v lb >/dev/null 2>&1; then
@@ -61,7 +64,7 @@ lb config \
 mkdir -p config/package-lists
 printf "%s\n" "$PKGS" > config/package-lists/custom.list.chroot
 
-# 5) Provide a fallback user 'user' and start X (re-uses part of the original logic)
+# 5) Provide a fallback user 'user' and start X
 mkdir -p config/hooks/live-bottom
 cat > config/hooks/live-bottom/040-create-user-and-autostart-x.chroot <<'HOOK'
 #!/bin/sh
@@ -71,14 +74,12 @@ if ! id -u user >/dev/null 2>&1; then
   useradd -m -s /bin/bash user
   echo 'user:live' | chpasswd
   chage -I -1 -m 0 -M 99999 -E -1 user || true
-  # Make sure the live user belongs to 'sudo' group if available (useful for post-install)
+  # Make sure the live user belongs to 'sudo' group if available
   if getent group sudo >/dev/null 2>&1; then
     usermod -aG sudo user
   fi
 fi
-# Enable auto-start of X upon login for console TTYs (a very common minimal setup)
-# This snippet checks if 'user' is the logged in user on a tty and if .xinitrc exists, then executes startx.
-# This assumes the live boot drops to a console login prompt for the 'user'.
+# Enable auto-start of X upon login for console TTYs
 cat > /etc/profile.d/autostartx.sh <<'STARTX'
 if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && [ "$USER" = "user" ] && [ -f "$HOME/.xinitrc" ]; then
     startx
@@ -88,7 +89,7 @@ chmod +x /etc/profile.d/autostartx.sh
 HOOK
 chmod +x config/hooks/live-bottom/040-create-user-and-autostart-x.chroot
 
-# 6) Fix apt sources at final image stage so apt works in the live system (re-used)
+# 6) Fix apt sources at final image stage
 cat > config/hooks/live-bottom/030-fix-sources.chroot <<'HOOK'
 #!/bin/sh
 set -e
@@ -102,7 +103,7 @@ apt-get update || true
 HOOK
 chmod +x config/hooks/live-bottom/030-fix-sources.chroot
 
-# 7) Minimal cleaning hooks (re-used)
+# 7) Minimal cleaning hooks
 mkdir -p config/hooks/chroot
 cat > config/hooks/chroot/001-clean-docs.chroot <<'HOOK'
 #!/bin/sh
@@ -112,7 +113,7 @@ find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name "en*" ! -name "it*" -exec
 HOOK
 chmod +x config/hooks/chroot/001-clean-docs.chroot
 
-# 7) GRUB + isolinux entries: persistence default, toram optional (re-used)
+# 8) GRUB + isolinux entries: persistence default, toram optional
 mkdir -p config/includes.binary/boot/grub
 cat > config/includes.binary/boot/grub/grub.cfg <<'GRUB'
 set default=0
@@ -145,4 +146,10 @@ ISOL
 echo "Starting lb build (this takes time)..."
 lb build
 
-echo "Build finished. The ISO should be in the current directory (live-image-*.iso)."
+# 11) Rename the output ISO with the timestamp
+if ls live-image-*.iso 1> /dev/null 2>&1; then
+    mv live-image-*.iso "${TIMESTAMP}.iso"
+    echo "Build finished. ISO renamed to: ${TIMESTAMP}.iso"
+else
+    echo "Error: ISO file not found. Build might have failed."
+fi
