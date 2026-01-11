@@ -24,6 +24,7 @@ libxinerama-dev
 make
 pipewire-audio
 suckless-tools
+x11-xserver-utils
 xfonts-terminus
 xinit
 xserver-xorg"
