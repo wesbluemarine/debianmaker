@@ -14,7 +14,7 @@ TIMESTAMP=$(date +"%Y%m%d%H%M")
 # 1) Updated Package List
 # Removed: build-essential, devs, make, suckless-tools
 # Added: Openbox runtime dependencies from your screenshot
-PKGS="build-essentials
+PKGS="build-essential
 dbus-x11
 distrobox
 firmware-linux
