@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Debian live ISO with minimal environment.
+# Build Debian live ISO with minimal environment and custom Openbox.
 
 set -euo pipefail
 set -x
@@ -8,10 +8,9 @@ LB_DIR="live-build-workdir"
 DIST="trixie"
 ARCH="amd64"
 IMAGE_LABEL="debian-trixie-tools"
-# Generate timestamp: YearMonthDayHourMinute
 TIMESTAMP=$(date +"%Y%m%d%H%M")
 
-# 1) Runtime Packages (Openbox + dipendenze immagine)
+# 1) Runtime Packages
 PKGS="dbus-x11
 distrobox
 firmware-linux
@@ -64,41 +63,40 @@ lb config \
 mkdir -p config/package-lists
 printf "%s\n" "$PKGS" > config/package-lists/custom.list.chroot
 
-# 6) HOOK: Compile Patched Openbox using build-dep
+# 6) HOOK: Compile Patched Openbox
 mkdir -p config/hooks/normal
 cat << 'EOF' > config/hooks/normal/0500-compile-openbox.chroot
 #!/bin/sh
 set -e
 
-# Abilitiamo temporaneamente i deb-src per build-dep
+# Temporarily enable deb-src
 echo "deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > /etc/apt/sources.list.d/sources-src.list
 
 apt-get update
-apt-get install -y --no-install-recommends build-essential git curl ca-certificates
+# Added docbook-to-man to prevent the Makefile error
+apt-get install -y --no-install-recommends build-essential git curl ca-certificates docbook-to-man
 
-# Installiamo tutte le dipendenze di build di openbox tramite apt
+# Install build dependencies
 apt-get build-dep -y openbox
 
 cd /tmp
 git clone https://github.com/danakj/openbox.git
 cd openbox
 
-# Download della patch corretta (link RAW fornito)
+# Download and apply patch
 curl -f -L https://raw.githubusercontent.com/wesbluemarine/openbox-window-snap/refs/heads/master/openbox-window-snap.diff -o snap.patch
-
-# Applichiamo la patch
 patch -p1 < snap.patch
 
-# Compilazione e Installazione
+# Build and Install
 ./bootstrap
 ./configure --prefix=/usr --sysconfdir=/etc
 make
 make install
 
-# Pulizia finale build-deps per mantenere l'ISO minimale
+# Cleanup
 rm /etc/apt/sources.list.d/sources-src.list
 apt-get update
-apt-get purge -y build-essential git curl
+apt-get purge -y build-essential git curl docbook-to-man
 apt-get autoremove -y
 apt-get clean
 cd /
@@ -106,7 +104,7 @@ rm -rf /tmp/openbox
 EOF
 chmod +x config/hooks/normal/0500-compile-openbox.chroot
 
-# 7) Provide a fallback user 'user' and start X
+# 7) User and Autostart hook
 mkdir -p config/hooks/live-bottom
 cat > config/hooks/live-bottom/040-create-user-and-autostart-x.chroot <<'HOOK'
 #!/bin/sh
@@ -142,7 +140,7 @@ apt-get update || true
 HOOK
 chmod +x config/hooks/live-bottom/030-fix-sources.chroot
 
-# 9) Minimal cleaning hooks
+# 9) Minimal cleaning
 mkdir -p config/hooks/chroot
 cat > config/hooks/chroot/001-clean-docs.chroot <<'HOOK'
 #!/bin/sh
@@ -152,7 +150,7 @@ find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name "en*" ! -name "it*" -exec
 HOOK
 chmod +x config/hooks/chroot/001-clean-docs.chroot
 
-# 10) GRUB + isolinux entries
+# 10) Bootloader config
 mkdir -p config/includes.binary/boot/grub
 cat > config/includes.binary/boot/grub/grub.cfg <<'GRUB'
 set default=0
@@ -181,14 +179,14 @@ label live
   append boot=live persistence quiet splash ---
 ISOL
 
-# 11) Start the build
-echo "Starting lb build (this takes time)..."
+# 11) Build
+echo "Starting lb build..."
 lb build
 
-# 12) Rename the output ISO
+# 12) Rename Output
 if ls live-image-*.iso 1> /dev/null 2>&1; then
     mv live-image-*.iso "${TIMESTAMP}.iso"
-    echo "Build finished. ISO renamed to: ${TIMESTAMP}.iso"
+    echo "Build finished: ${TIMESTAMP}.iso"
 else
-    echo "Error: ISO file not found. Build might have failed."
+    echo "Error: ISO file not found."
 fi
