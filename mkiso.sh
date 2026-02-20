@@ -11,11 +11,8 @@ IMAGE_LABEL="debian-trixie-tools"
 # Generate timestamp: YearMonthDayHourMinute
 TIMESTAMP=$(date +"%Y%m%d%H%M")
 
-# 1) Updated Package List
-# Removed: build-essential, devs, make, suckless-tools
-# Added: Openbox runtime dependencies from your screenshot
-PKGS="build-essential
-dbus-x11
+# 1) Updated Package List (Runtime)
+PKGS="dbus-x11
 distrobox
 firmware-linux
 firmware-misc-nonfree
@@ -67,21 +64,20 @@ lb config \
 mkdir -p config/package-lists
 printf "%s\n" "$PKGS" > config/package-lists/custom.list.chroot
 
-# 6) HOOK: Compile Patched Openbox
-# This script runs inside the chroot, compiles Openbox, and cleans up build-deps.
+# 6) HOOK: Compile Patched Openbox using build-dep
 mkdir -p config/hooks/normal
 cat << 'EOF' > config/hooks/normal/0500-compile-openbox.chroot
 #!/bin/sh
 set -e
 
-# Temporary build dependencies
-BUILD_DEPS="build-essential git automake libtool pkg-config curl \
-    libxml2-dev libglib2.0-dev libpango1.0-dev \
-    libxft-dev libxinerama-dev libxrandr-dev \
-    libxcursor-dev libsm-dev libimlib2-dev liblibrsvg2-dev"
+# Temporarily enable deb-src to use 'apt build-dep'
+echo "deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > /etc/apt/sources.list.d/sources-src.list
 
 apt-get update
-apt-get install -y --no-install-recommends $BUILD_DEPS
+
+# Install build-essential, git, curl and all openbox build dependencies
+apt-get install -y --no-install-recommends build-essential git curl
+apt-get build-dep -y openbox
 
 # Clone Openbox Source
 cd /tmp
@@ -98,12 +94,16 @@ patch -p1 < snap.patch
 make
 make install
 
-# Cleanup: Remove build-deps so they are not in the final ISO
-cd /
-rm -rf /tmp/openbox
-apt-get purge -y $BUILD_DEPS
+# Cleanup: Remove source list, build-deps, and temporary files
+rm /etc/apt/sources.list.d/sources-src.list
+apt-get update
+# We use 'markauto' logic or purge build-essential/git to stay minimal
+apt-get purge -y build-essential git curl
 apt-get autoremove -y
 apt-get clean
+
+cd /
+rm -rf /tmp/openbox
 EOF
 chmod +x config/hooks/normal/0500-compile-openbox.chroot
 
@@ -129,7 +129,7 @@ chmod +x /etc/profile.d/autostartx.sh
 HOOK
 chmod +x config/hooks/live-bottom/040-create-user-and-autostart-x.chroot
 
-# 8) Fix apt sources at final image stage
+# 8) Fix apt sources
 cat > config/hooks/live-bottom/030-fix-sources.chroot <<'HOOK'
 #!/bin/sh
 set -e
@@ -183,13 +183,13 @@ label live
 ISOL
 
 # 11) Start the build
-echo "Starting lb build (this takes time)..."
+echo "Starting lb build..."
 lb build
 
-# 12) Rename the output ISO with the timestamp
+# 12) Rename the output ISO
 if ls live-image-*.iso 1> /dev/null 2>&1; then
     mv live-image-*.iso "${TIMESTAMP}.iso"
     echo "Build finished. ISO renamed to: ${TIMESTAMP}.iso"
 else
-    echo "Error: ISO file not found. Build might have failed."
+    echo "Error: ISO file not found."
 fi
