@@ -11,7 +11,7 @@ IMAGE_LABEL="debian-trixie-tools"
 # Generate timestamp: YearMonthDayHourMinute
 TIMESTAMP=$(date +"%Y%m%d%H%M")
 
-# 1) Updated Package List (Runtime)
+# 1) Runtime Packages (Openbox + dipendenze immagine)
 PKGS="dbus-x11
 distrobox
 firmware-linux
@@ -70,38 +70,37 @@ cat << 'EOF' > config/hooks/normal/0500-compile-openbox.chroot
 #!/bin/sh
 set -e
 
-# Temporarily enable deb-src to use 'apt build-dep'
+# Abilitiamo temporaneamente i deb-src per build-dep
 echo "deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > /etc/apt/sources.list.d/sources-src.list
 
 apt-get update
+apt-get install -y --no-install-recommends build-essential git curl ca-certificates
 
-# Install build-essential, git, curl and all openbox build dependencies
-apt-get install -y --no-install-recommends build-essential git curl
+# Installiamo tutte le dipendenze di build di openbox tramite apt
 apt-get build-dep -y openbox
 
-# Clone Openbox Source
 cd /tmp
 git clone https://github.com/danakj/openbox.git
 cd openbox
 
-# Download and Apply the Window-Snap Patch
-curl -L https://raw.githubusercontent.com/wesbluemarine/openbox-window-snap/master/openbox-3.6.1-patch.diff -o snap.patch
+# Download della patch corretta (link RAW fornito)
+curl -f -L https://raw.githubusercontent.com/wesbluemarine/openbox-window-snap/refs/heads/master/openbox-window-snap.diff -o snap.patch
+
+# Applichiamo la patch
 patch -p1 < snap.patch
 
-# Build and Install
+# Compilazione e Installazione
 ./bootstrap
 ./configure --prefix=/usr --sysconfdir=/etc
 make
 make install
 
-# Cleanup: Remove source list, build-deps, and temporary files
+# Pulizia finale build-deps per mantenere l'ISO minimale
 rm /etc/apt/sources.list.d/sources-src.list
 apt-get update
-# We use 'markauto' logic or purge build-essential/git to stay minimal
 apt-get purge -y build-essential git curl
 apt-get autoremove -y
 apt-get clean
-
 cd /
 rm -rf /tmp/openbox
 EOF
@@ -183,7 +182,7 @@ label live
 ISOL
 
 # 11) Start the build
-echo "Starting lb build..."
+echo "Starting lb build (this takes time)..."
 lb build
 
 # 12) Rename the output ISO
@@ -191,5 +190,5 @@ if ls live-image-*.iso 1> /dev/null 2>&1; then
     mv live-image-*.iso "${TIMESTAMP}.iso"
     echo "Build finished. ISO renamed to: ${TIMESTAMP}.iso"
 else
-    echo "Error: ISO file not found."
+    echo "Error: ISO file not found. Build might have failed."
 fi
