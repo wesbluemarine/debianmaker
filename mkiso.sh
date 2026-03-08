@@ -75,7 +75,7 @@ set -e
 echo "deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > /etc/apt/sources.list.d/sources-src.list
 
 apt-get update
-# Install build tools and docbook-to-man to prevent Makefile errors
+# Install build tools and docbook-to-man
 apt-get install -y --no-install-recommends build-essential git curl ca-certificates docbook-to-man
 
 # Install build dependencies for openbox
@@ -89,11 +89,32 @@ cd openbox
 curl -f -L https://raw.githubusercontent.com/wesbluemarine/openbox-window-snap/refs/heads/master/openbox-window-snap.diff -o snap.patch
 patch -p1 < snap.patch
 
-# Build and Install to /usr
+# Build
 ./bootstrap
 ./configure --prefix=/usr --sysconfdir=/etc
-make
-make install
+make -j$(nproc)
+
+# --- Minimal Debian Package ---
+mkdir -p /tmp/openbox-pkg/DEBIAN
+make install DESTDIR=/tmp/openbox-pkg
+
+# Create file control package
+cat <<DEBCONTROL > /tmp/openbox-pkg/DEBIAN/control
+Package: openbox
+Version: 3.6.1-patched
+Section: x11
+Priority: optional
+Architecture: amd64
+Maintainer: Custom-Build
+Description: Openbox patched with window-snapping.
+Provides: openbox
+Conflicts: openbox
+DEBCONTROL
+
+# Build and install il .deb
+dpkg-deb --build /tmp/openbox-pkg /tmp/openbox-patched.deb
+dpkg -i /tmp/openbox-patched.deb
+# -----------------------------------------------------------------
 
 # Cleanup build-only dependencies and source files
 rm /etc/apt/sources.list.d/sources-src.list
@@ -102,7 +123,7 @@ apt-get purge -y build-essential git curl docbook-to-man
 apt-get autoremove -y
 apt-get clean
 cd /
-rm -rf /tmp/openbox
+rm -rf /tmp/openbox /tmp/openbox-pkg /tmp/openbox-patched.deb
 EOF
 chmod +x config/hooks/normal/0500-compile-openbox.chroot
 
