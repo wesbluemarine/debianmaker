@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Debian live ISO with minimal environment and custom Openbox.
+# Build Debian live ISO with minimal environment.
 
 set -euo pipefail
 set -x
@@ -11,7 +11,8 @@ IMAGE_LABEL="debian-trixie-tools"
 TIMESTAMP=$(date +"%Y%m%d%H%M")
 
 # 1) Runtime Packages
-PKGS="dbus-x11
+PKGS="linux-image-amd64
+dbus-x11
 distrobox
 firmware-linux
 #firmware-misc-nonfree
@@ -19,8 +20,6 @@ libavcodec-extra
 libopengl0
 libid3tag0
 libimlib2t64
-libobrender32v5
-libobt2v5
 libsdl2-2.0-0
 scrot
 pipewire-audio
@@ -28,6 +27,7 @@ x11-xserver-utils
 xfonts-terminus
 xinit
 xserver-xorg
+wmaker
 tzdata" # Timezone management
 
 # 2) Check if live-build is available
@@ -65,69 +65,7 @@ lb config \
 mkdir -p config/package-lists
 printf "%s\n" "$PKGS" > config/package-lists/custom.list.chroot
 
-# 6) HOOK: Compile Patched Openbox
-mkdir -p config/hooks/normal
-cat << 'EOF' > config/hooks/normal/0500-compile-openbox.chroot
-#!/bin/sh
-set -e
-
-# Temporarily enable deb-src for building
-echo "deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > /etc/apt/sources.list.d/sources-src.list
-
-apt-get update
-# Install build tools and docbook-to-man
-apt-get install -y --no-install-recommends build-essential git curl ca-certificates docbook-to-man
-
-# Install build dependencies for openbox
-apt-get build-dep -y openbox
-
-cd /tmp
-git clone https://github.com/danakj/openbox.git
-cd openbox
-
-# Download and apply window-snapping patch
-curl -f -L https://raw.githubusercontent.com/wesbluemarine/openbox-window-snap/refs/heads/master/openbox-window-snap.diff -o snap.patch
-patch -p1 < snap.patch
-
-# Build
-./bootstrap
-./configure --prefix=/usr --sysconfdir=/etc
-make -j$(nproc)
-
-# --- Minimal Debian Package ---
-mkdir -p /tmp/openbox-pkg/DEBIAN
-make install DESTDIR=/tmp/openbox-pkg
-
-# Create file control package
-cat <<DEBCONTROL > /tmp/openbox-pkg/DEBIAN/control
-Package: openbox
-Version: 3.6.1-patched
-Section: x11
-Priority: optional
-Architecture: amd64
-Maintainer: Custom-Build
-Description: Openbox patched with window-snapping.
-Provides: openbox
-Conflicts: openbox
-DEBCONTROL
-
-# Build and install il .deb
-dpkg-deb --build /tmp/openbox-pkg /tmp/openbox-patched.deb
-dpkg -i /tmp/openbox-patched.deb
-# -----------------------------------------------------------------
-
-# Cleanup build-only dependencies and source files
-rm /etc/apt/sources.list.d/sources-src.list
-apt-get update
-apt-get purge -y build-essential git curl docbook-to-man
-apt-get autoremove -y
-apt-get clean
-cd /
-rm -rf /tmp/openbox /tmp/openbox-pkg /tmp/openbox-patched.deb
-EOF
-chmod +x config/hooks/normal/0500-compile-openbox.chroot
-
-# 7) User creation, .xinitrc, Autostart and Timezone setup
+# 6) User creation, Autostart and Timezone setup
 mkdir -p config/hooks/live-bottom
 cat > config/hooks/live-bottom/040-create-user-and-autostart-x.chroot <<'HOOK'
 #!/bin/sh
@@ -147,19 +85,13 @@ if ! id -u user >/dev/null 2>&1; then
   fi
 fi
 
-# Create .xinitrc to ensure Openbox is the main session process
-cat > /home/user/.xinitrc <<'XINIT'
-#!/bin/sh
-# Use exec to replace the xinit process with openbox-session
-exec openbox-session
-XINIT
-chown user:user /home/user/.xinitrc
-chmod +x /home/user/.xinitrc
-
-# Trigger startx on TTY1 login. 
-# Using 'exec' ensures that when X exits, the shell session ends immediately.
+# Trigger startx on TTY1 login, only if the user has a ~/.xinitrc
+# (otherwise X would exit immediately) and only once per boot
+# (avoids respawn loops if X dies or the session ends).
 cat > /etc/profile.d/autostartx.sh <<'STARTX'
-if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && [ "$USER" = "user" ]; then
+if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && [ "$USER" = "user" ] \
+   && [ -f "$HOME/.xinitrc" ] && [ ! -e /tmp/.startx-done ]; then
+    touch /tmp/.startx-done
     startx
 fi
 STARTX
@@ -167,7 +99,7 @@ chmod +x /etc/profile.d/autostartx.sh
 HOOK
 chmod +x config/hooks/live-bottom/040-create-user-and-autostart-x.chroot
 
-# 8) Configure APT sources for the live system
+# 7) Configure APT sources for the live system
 cat > config/hooks/live-bottom/030-fix-sources.chroot <<'HOOK'
 #!/bin/sh
 set -e
@@ -181,7 +113,7 @@ apt-get update || true
 HOOK
 chmod +x config/hooks/live-bottom/030-fix-sources.chroot
 
-# 9) Minimalize image size by removing docs and unused locales
+# 8) Minimalize image size by removing docs and unused locales
 mkdir -p config/hooks/chroot
 cat > config/hooks/chroot/001-clean-docs.chroot <<'HOOK'
 #!/bin/sh
@@ -191,18 +123,18 @@ find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name "en*" ! -name "it*" -exec
 HOOK
 chmod +x config/hooks/chroot/001-clean-docs.chroot
 
-# 10) Bootloader Configuration (GRUB and ISOLINUX)
+# 9) Bootloader Configuration (GRUB and ISOLINUX)
 mkdir -p config/includes.binary/boot/grub
 cat > config/includes.binary/boot/grub/grub.cfg <<'GRUB'
 set default=1
 set timeout=8
 menuentry "Live persistent system" {
-    linux /live/vmlinuz boot=live persistence quiet splash ---
-    initrd /live/initrd.img
+    linux /live/__KERNEL__ boot=live persistence quiet splash ---
+    initrd /live/__INITRD__
 }
 menuentry "Live persistent system (toram)" {
-    linux /live/vmlinuz boot=live persistence toram quiet splash ---
-    initrd /live/initrd.img
+    linux /live/__KERNEL__ boot=live persistence toram quiet splash ---
+    initrd /live/__INITRD__
 }
 GRUB
 
@@ -212,19 +144,36 @@ default vesamenu.c32
 timeout 100
 label toram
   menu label Live (persistent, copy to RAM)
-  kernel /live/vmlinuz
+  kernel /live/__KERNEL__
   append boot=live persistence toram quiet splash ---
 label live
   menu label ^Live persistent system
-  kernel /live/vmlinuz
+  kernel /live/__KERNEL__
   append boot=live persistence quiet splash ---
 ISOL
 
-# 11) Execute build
+# live-build names the kernel/initrd with the version (e.g. vmlinuz-6.12.x-amd64),
+# so the fixed names above would not be found at boot. This hook runs on the
+# binary tree after includes.binary are copied and puts in the real file names.
+mkdir -p config/hooks/normal
+cat > config/hooks/normal/0900-fix-kernel-names.binary <<'HOOK'
+#!/bin/sh
+set -e
+[ -d binary/live ] && cd binary
+KERNEL=$(basename "$(ls live/vmlinuz* | head -n1)")
+INITRD=$(basename "$(ls live/initrd.img* | head -n1)")
+for f in boot/grub/grub.cfg isolinux/txt.cfg; do
+  [ -f "$f" ] && sed -i "s|__KERNEL__|$KERNEL|g; s|__INITRD__|$INITRD|g" "$f"
+done
+exit 0
+HOOK
+chmod +x config/hooks/normal/0900-fix-kernel-names.binary
+
+# 10) Execute build
 echo "Starting lb build..."
 lb build
 
-# 12) Output management
+# 11) Output management
 if ls live-image-*.iso 1> /dev/null 2>&1; then
     mv live-image-*.iso "${TIMESTAMP}.iso"
     echo "Build finished: ${TIMESTAMP}.iso"
