@@ -11,7 +11,8 @@ IMAGE_LABEL="debian-trixie-tools"
 TIMESTAMP=$(date +"%Y%m%d%H%M")
 
 # 1) Runtime Packages
-PKGS="dbus-x11
+PKGS="linux-image-amd64
+dbus-x11
 distrobox
 firmware-linux
 #firmware-misc-nonfree
@@ -22,6 +23,7 @@ libimlib2t64
 libsdl2-2.0-0
 scrot
 pipewire-audio
+suckless-tools
 x11-xserver-utils
 xfonts-terminus
 xinit
@@ -127,12 +129,12 @@ cat > config/includes.binary/boot/grub/grub.cfg <<'GRUB'
 set default=1
 set timeout=8
 menuentry "Live persistent system" {
-    linux /live/vmlinuz boot=live persistence quiet splash ---
-    initrd /live/initrd.img
+    linux /live/__KERNEL__ boot=live persistence quiet splash ---
+    initrd /live/__INITRD__
 }
 menuentry "Live persistent system (toram)" {
-    linux /live/vmlinuz boot=live persistence toram quiet splash ---
-    initrd /live/initrd.img
+    linux /live/__KERNEL__ boot=live persistence toram quiet splash ---
+    initrd /live/__INITRD__
 }
 GRUB
 
@@ -142,13 +144,30 @@ default vesamenu.c32
 timeout 100
 label toram
   menu label Live (persistent, copy to RAM)
-  kernel /live/vmlinuz
+  kernel /live/__KERNEL__
   append boot=live persistence toram quiet splash ---
 label live
   menu label ^Live persistent system
-  kernel /live/vmlinuz
+  kernel /live/__KERNEL__
   append boot=live persistence quiet splash ---
 ISOL
+
+# live-build names the kernel/initrd with the version (e.g. vmlinuz-6.12.x-amd64),
+# so the fixed names above would not be found at boot. This hook runs on the
+# binary tree after includes.binary are copied and puts in the real file names.
+mkdir -p config/hooks/normal
+cat > config/hooks/normal/0900-fix-kernel-names.binary <<'HOOK'
+#!/bin/sh
+set -e
+[ -d binary/live ] && cd binary
+KERNEL=$(basename "$(ls live/vmlinuz* | head -n1)")
+INITRD=$(basename "$(ls live/initrd.img* | head -n1)")
+for f in boot/grub/grub.cfg isolinux/txt.cfg; do
+  [ -f "$f" ] && sed -i "s|__KERNEL__|$KERNEL|g; s|__INITRD__|$INITRD|g" "$f"
+done
+exit 0
+HOOK
+chmod +x config/hooks/normal/0900-fix-kernel-names.binary
 
 # 10) Execute build
 echo "Starting lb build..."
