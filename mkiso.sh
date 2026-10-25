@@ -23,11 +23,12 @@ libimlib2t64
 libsdl2-2.0-0
 scrot
 pipewire-audio
+wmaker
 x11-xserver-utils
 xfonts-terminus
 xinit
-xserver-xorg
-wmaker
+xserver-xorg-core
+xserver-xorg-input-libinput
 tzdata" # Timezone management
 
 # 2) Check if live-build is available
@@ -53,7 +54,8 @@ lb config \
   --archive-areas "main contrib non-free non-free-firmware" \
   --binary-images iso-hybrid \
   --bootappend-live "persistence" \
-  --debian-installer live \
+  --apt-recommends false \
+  --chroot-squashfs-compression-type zstd \
   --iso-volume "$IMAGE_LABEL" \
   --iso-publisher "Custom Debian Live" \
   --mirror-bootstrap http://deb.debian.org/debian/ \
